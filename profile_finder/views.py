@@ -11,11 +11,17 @@ from django.db import transaction
 from django.http import HttpResponseServerError
 import requests
 from requests.exceptions import RequestException
-from .models import Person, Profile, SearchHistory
+from .models import Person, Profile, SearchHistory, Source
 from .forms import PersonSearchForm
 import json
 import time
 from django.http import HttpResponse
+from .utils import (
+    calculate_name_match_score,
+    calculate_description_match_score,
+    calculate_content_relevance_score,
+    calculate_overall_score
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -134,15 +140,13 @@ def process_search(name: str, description: str, source: Optional[str] = None) ->
 
 def get_source_domain(source: str) -> str:
     """Convert source name to domain for search query"""
-    source_domains = {
-        'LinkedIn': 'linkedin.com',
-        'Twitter': 'twitter.com',
-        'Facebook': 'facebook.com',
-        'GitHub': 'github.com',
-        'Medium': 'medium.com',
-        'Wikipedia': 'wikipedia.org',
-    }
-    return source_domains.get(source, '')
+    if not source:
+        return ''
+    try:
+        return Source.objects.get(name=source).domain
+    except Source.DoesNotExist:
+        logger.warning(f"Source not found: {source}")
+        return ''
 
 def perform_google_search(query: str) -> List[Dict]:
     """Perform Google Custom Search with error handling and rate limiting"""
@@ -179,17 +183,28 @@ def perform_google_search(query: str) -> List[Dict]:
         raise SearchException(f"Search failed: {str(e)}")
 
 def process_search_results(person: Person, results: List[Dict], search_query: str) -> List[Dict]:
-    """Process and save search results with enhanced data extraction"""
+    """Process and save search results with enhanced scoring"""
     processed_results = []
     
     for result in results:
         try:
-            # Extract and process source information
             url = result.get('link', '')
             domain = extract_domain(url)
             source_type = categorize_source(domain)
             
-            # Create or update profile
+            # Calculate match scores
+            result_text = f"{result.get('title', '')} {result.get('snippet', '')}"
+            name_score = calculate_name_match_score(person.name, result_text)
+            desc_score = calculate_description_match_score(person.description, result_text)
+            content_score = calculate_content_relevance_score(result, source_type)
+            overall_score = calculate_overall_score(name_score, desc_score, content_score)
+            
+            # Only process results with minimum relevance
+            if overall_score < 0.2:  # Adjust threshold as needed
+                logger.info(f"Skipping low-relevance result: {url} (score: {overall_score})")
+                continue
+            
+            # Create or update profile with scores
             profile, created = Profile.objects.update_or_create(
                 person=person,
                 url=url,
@@ -197,13 +212,17 @@ def process_search_results(person: Person, results: List[Dict], search_query: st
                     'source': source_type,
                     'title': result.get('title', ''),
                     'snippet': result.get('snippet', ''),
-                    'search_query': search_query
+                    'search_query': search_query,
+                    'name_match_score': name_score,
+                    'description_match_score': desc_score,
+                    'content_relevance_score': content_score,
+                    'overall_score': overall_score
                 }
             )
             
-            # Log profile creation/update
+            # Log profile creation/update with score
             action = "Created" if created else "Updated"
-            logger.info(f"{action} profile for {person.name}: {url}")
+            logger.info(f"{action} profile for {person.name}: {url} (score: {overall_score})")
             
             processed_results.append(result)
             
@@ -223,17 +242,9 @@ def extract_domain(url: str) -> str:
 
 def categorize_source(domain: str) -> str:
     """Categorize the source based on domain"""
-    source_categories = {
-        'linkedin.com': 'LinkedIn',
-        'twitter.com': 'Twitter',
-        'facebook.com': 'Facebook',
-        'github.com': 'GitHub',
-        'medium.com': 'Medium',
-        'wikipedia.org': 'Wikipedia'
-    }
-    
-    for known_domain, category in source_categories.items():
-        if known_domain in domain:
-            return category
-    
-    return domain
+    try:
+        source = Source.objects.filter(domain__icontains=domain).first()
+        return source.name if source else domain
+    except Exception as e:
+        logger.error(f"Error categorizing source for domain {domain}: {str(e)}")
+        return domain

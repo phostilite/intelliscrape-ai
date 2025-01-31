@@ -1,0 +1,14 @@
+<h2 class="mt-4">Search History</h2>
+<div class="list-group">
+    {% for search in search_history %}
+    <div class="list-group-item">
+        <div class="d-flex w-100 justify-content-between">
+            <h5 class="mb-1">{{ search.query }}</h5>
+            <small>{{ search.timestamp|date:"F j, Y H:i" }}</small>
+        </div>
+        <p class="mb-1">Results found: {{ search.results_count }}</p>
+    </div>
+    {% empty %}
+    <p>No search history.</p>
+    {% endfor %}
+</div>

@@ -1,57 +1,88 @@
 <!-- templates/profiles/person_detail.html -->
 {% extends 'profiles/base.html' %}
+{% load profile_filters %}
 
-{% block title %}{{ person.name }} - Profile Finder{% endblock %}
+{% block title %}{{ person.name }} - Profile Details{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>{{ person.name }}</h2>
-            <a href="{% url 'search-person' %}" class="btn btn-primary">New Search</a>
-        </div>
+<div class="container mt-4">
+    <h1>{{ person.name }}</h1>
+    {% if person.description %}
+    <p class="text-muted">{{ person.description }}</p>
+    {% endif %}
 
-        {% if person.description %}
-            <div class="alert alert-info">
-                <strong>Description:</strong> {{ person.description }}
-            </div>
-        {% endif %}
+    <h2 class="mt-4">Found Profiles</h2>
+    {% regroup profiles by source as source_list %}
+    
+    <div class="accordion" id="profileAccordion">
+        {% for source in source_list %}
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="heading{{ forloop.counter }}">
+                <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}" type="button" 
+                        data-bs-toggle="collapse" data-bs-target="#collapse{{ forloop.counter }}">
+                    {{ source.grouper }} ({{ source.list|length }})
+                </button>
+            </h2>
+            <div id="collapse{{ forloop.counter }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+                 data-bs-parent="#profileAccordion">
+                <div class="accordion-body">
+                    {% for profile in source.list %}
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h3 class="card-title">{{ profile.title }}</h3>
+                            
+                            <!-- Score indicators -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="small">
+                                        <span class="badge bg-{{ profile.overall_score|score_color }}">
+                                            Match: {{ profile.overall_score|percentage }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar" role="progressbar" 
+                                             style="width: {{ profile.name_match_score|percentage }};"
+                                             title="Name Match">
+                                            N: {{ profile.name_match_score|percentage }}
+                                        </div>
+                                        <div class="progress-bar bg-info" role="progressbar" 
+                                             style="width: {{ profile.description_match_score|percentage }};"
+                                             title="Description Match">
+                                            D: {{ profile.description_match_score|percentage }}
+                                        </div>
+                                        <div class="progress-bar bg-secondary" role="progressbar" 
+                                             style="width: {{ profile.content_relevance_score|percentage }};"
+                                             title="Content Relevance">
+                                            C: {{ profile.content_relevance_score|percentage }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-        <div class="card mb-4">
-            <div class="card-header">
-                <h3 class="card-title mb-0">Search History</h3>
-            </div>
-            <div class="card-body">
-                {% for history in person.searchhistory_set.all %}
-                    <div class="search-history mb-2">
-                        <strong>Query:</strong> {{ history.query }}<br>
-                        <strong>Time:</strong> {{ history.timestamp|date:"F j, Y, g:i a" }}<br>
-                        <strong>Results:</strong> {{ history.results_count }}
+                            <p class="card-text">{{ profile.snippet }}</p>
+                            <a href="{{ profile.url }}" class="btn btn-outline-primary btn-sm" target="_blank">
+                                View Profile <i class="bi bi-box-arrow-up-right"></i>
+                            </a>
+                            
+                            <div class="text-muted small mt-2">
+                                Last updated: {{ profile.last_updated|date:"F j, Y" }}
+                                <br>
+                                Search query: {{ profile.search_query }}
+                            </div>
+                        </div>
                     </div>
-                    {% if not forloop.last %}<hr>{% endif %}
-                {% endfor %}
+                    {% endfor %}
+                </div>
             </div>
         </div>
-
-        <h3 class="mb-4">Found Profiles</h3>
-        {% if person.profiles.exists %}
-            {% for profile in person.profiles.all %}
-                <div class="profile-card">
-                    <h4>
-                        <a href="{{ profile.url }}" target="_blank" rel="noopener noreferrer">
-                            {{ profile.title }}
-                        </a>
-                    </h4>
-                    <p class="text-muted mb-2">Source: {{ profile.source }}</p>
-                    <p class="mb-2">{{ profile.snippet }}</p>
-                    <small class="text-muted">Last updated: {{ profile.last_updated|date:"F j, Y" }}</small>
-                </div>
-            {% endfor %}
-        {% else %}
-            <div class="alert alert-warning">
-                No profiles found. Try searching again with different keywords.
-            </div>
-        {% endif %}
+        {% empty %}
+        <p>No profiles found.</p>
+        {% endfor %}
     </div>
+
+    <!-- Search History section remains unchanged -->
+    {% include "profiles/includes/search_history.html" %}
 </div>
 {% endblock %}
