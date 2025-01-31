@@ -72,10 +72,11 @@ def handle_search_post(request) -> HttpResponse:
 
     name = form.cleaned_data['name']
     description = form.cleaned_data['description']
+    source = form.cleaned_data['source']
 
     try:
         with transaction.atomic():
-            person, search_results = process_search(name, description)
+            person, search_results = process_search(name, description, source)
             if not search_results:
                 messages.warning(request, "No results found. Try modifying your search terms.")
             else:
@@ -90,7 +91,7 @@ def handle_search_get(request) -> HttpResponse:
     form = PersonSearchForm()
     return render(request, 'profiles/search.html', {'form': form})
 
-def process_search(name: str, description: str) -> Tuple[Person, List[Dict]]:
+def process_search(name: str, description: str, source: Optional[str] = None) -> Tuple[Person, List[Dict]]:
     """Process the search request and return person and results"""
     # Create or get person
     person, created = Person.objects.get_or_create(
@@ -102,8 +103,11 @@ def process_search(name: str, description: str) -> Tuple[Person, List[Dict]]:
         person.description = description
         person.save()
 
-    # Perform search
+    # Prepare search query
     search_query = f"{name} {description}".strip()
+    if source:
+        search_query = f"{search_query} site:{get_source_domain(source)}"
+    
     start_time = time.time()
     
     try:
@@ -127,6 +131,18 @@ def process_search(name: str, description: str) -> Tuple[Person, List[Dict]]:
     except Exception as e:
         logger.exception(f"Error during search processing for query '{search_query}'")
         raise SearchException(f"Failed to process search: {str(e)}")
+
+def get_source_domain(source: str) -> str:
+    """Convert source name to domain for search query"""
+    source_domains = {
+        'LinkedIn': 'linkedin.com',
+        'Twitter': 'twitter.com',
+        'Facebook': 'facebook.com',
+        'GitHub': 'github.com',
+        'Medium': 'medium.com',
+        'Wikipedia': 'wikipedia.org',
+    }
+    return source_domains.get(source, '')
 
 def perform_google_search(query: str) -> List[Dict]:
     """Perform Google Custom Search with error handling and rate limiting"""
